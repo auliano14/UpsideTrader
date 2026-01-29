@@ -26,7 +26,6 @@ export async function ingestNewsForTicker(symbol: string): Promise<void> {
 
     const { score, label } = sentimentFromText(title);
 
-    // Ensure ticker exists in DB (news routes assume it)
     const ticker = await prisma.ticker.upsert({
       where: { symbol },
       update: {},
