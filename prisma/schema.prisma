@@ -1,4 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+}
 
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Ticker {
+  id        String   @id @default(cuid())
+  symbol    String   @unique
+  name      String?
+  marketCap Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  snapshots      MetricsSnapshot[]
+  watchlistItems WatchlistItem[]
+}
 
 model MetricsSnapshot {
   id          String   @id @default(cuid())
@@ -8,18 +27,23 @@ model MetricsSnapshot {
   upsideScore Float
   strongMatch Boolean @default(false)
 
+  // Liquidity
   avgDollarVol20d Float?
-  marketCap       Float?
 
-  // News sentiment summary (informational only)
-  newsLabel    String?  // Positive | Neutral | Negative
-  newsTrend    String?  // Improving | Stable | Worsening
-  newsScore3d  Float?
-  newsScore7d  Float?
+  // Swing setup metrics
+  close       Float?
+  sma50       Float?
+  sma200      Float?
+  atr14       Float?
+  atrPct      Float?
+  rvol        Float?
+  baseTight   Float?
+  breakout    Boolean @default(false)
 
   // Explainability
   metCriteriaJson String
   notesJson       String
+  tagsJson        String
 
   ticker      Ticker @relation(fields: [tickerId], references: [id])
   @@index([tickerId, date])
@@ -34,19 +58,4 @@ model WatchlistItem {
 
   ticker   Ticker @relation(fields: [tickerId], references: [id])
   @@index([tickerId])
-}
-
-model NewsArticle {
-  id             String   @id @default(cuid())
-  tickerId       String
-  publishedAt    DateTime
-  title          String
-  source         String?
-  url            String?  @unique
-  sentimentScore Float
-  sentimentLabel String   // Positive | Neutral | Negative
-  createdAt      DateTime @default(now())
-
-  ticker         Ticker @relation(fields: [tickerId], references: [id])
-  @@index([tickerId, publishedAt])
 }
