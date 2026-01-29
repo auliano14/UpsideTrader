@@ -6,13 +6,17 @@ function apiKey() {
   return k;
 }
 
-async function getJson(path: string, params: Record<string, string | number | boolean | undefined> = {}) {
+async function getJson(
+  path: string,
+  params: Record<string, string | number | boolean | undefined> = {}
+) {
   const url = new URL(BASE + path);
   url.searchParams.set("apiKey", apiKey());
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined) continue;
     url.searchParams.set(k, String(v));
   }
+
   const res = await fetch(url.toString(), { cache: "no-store" });
   if (!res.ok) {
     const text = await res.text();
@@ -22,7 +26,6 @@ async function getJson(path: string, params: Record<string, string | number | bo
 }
 
 export async function listTickers(limit = 1000) {
-  // Broadly available on Starter
   return getJson("/v3/reference/tickers", { market: "stocks", active: true, limit });
 }
 
@@ -31,7 +34,6 @@ export async function tickerOverview(symbol: string) {
 }
 
 export async function aggsDailyRange(symbol: string, from: string, to: string) {
-  // Broadly available on Starter
   return getJson(`/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${from}/${to}`, {
     adjusted: true,
     sort: "asc",
