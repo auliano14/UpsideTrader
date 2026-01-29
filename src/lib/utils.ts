@@ -16,3 +16,8 @@ export function fmtMoney(n: number | null | undefined) {
   if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
   return `$${n.toFixed(0)}`;
 }
+
+export function fmt(n: number | null | undefined, digits = 2) {
+  if (n === null || n === undefined || Number.isNaN(n)) return "n/a";
+  return n.toFixed(digits);
+}
