@@ -2,7 +2,7 @@ const BASE = "https://api.polygon.io";
 
 function apiKey() {
   const k = process.env.POLYGON_API_KEY;
-  if (!k) throw new Error("Missing POLYGON_API_KEY in .env");
+  if (!k) throw new Error("Missing POLYGON_API_KEY in environment variables");
   return k;
 }
 
@@ -11,7 +11,11 @@ async function getJson(
   params: Record<string, string | number | boolean | undefined> = {}
 ) {
   const url = new URL(BASE + path);
+
+  // Always attach apiKey
   url.searchParams.set("apiKey", apiKey());
+
+  // Attach any other query params
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined) continue;
     url.searchParams.set(k, String(v));
@@ -25,18 +29,41 @@ async function getJson(
   return res.json();
 }
 
+// -----------------------------
+// Reference / Universe
+// -----------------------------
 export async function listTickers(limit = 1000) {
-  return getJson("/v3/reference/tickers", { market: "stocks", active: true, limit });
+  return getJson("/v3/reference/tickers", {
+    market: "stocks",
+    active: true,
+    limit
+  });
 }
 
 export async function tickerOverview(symbol: string) {
   return getJson(`/v3/reference/tickers/${encodeURIComponent(symbol)}`);
 }
 
+// -----------------------------
+// Price data
+// -----------------------------
 export async function aggsDailyRange(symbol: string, from: string, to: string) {
-  return getJson(`/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${from}/${to}`, {
-    adjusted: true,
-    sort: "asc",
-    limit: 50000
+  return getJson(
+    `/v2/aggs/ticker/${encodeURIComponent(symbol)}/range/1/day/${from}/${to}`,
+    {
+      adjusted: true,
+      sort: "asc",
+      limit: 50000
+    }
+  );
+}
+
+// -----------------------------
+// News (used for sentiment info only)
+// -----------------------------
+export async function news(symbol: string, limit = 50) {
+  return getJson("/v2/reference/news", {
+    ticker: symbol,
+    limit
   });
 }
