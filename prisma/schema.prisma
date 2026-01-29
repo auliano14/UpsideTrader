@@ -20,9 +20,9 @@ model Ticker {
 }
 
 model MetricsSnapshot {
-  id          String   @id @default(cuid())
-  tickerId    String
-  date        DateTime @default(now())
+  id        String   @id @default(cuid())
+  tickerId  String
+  date      DateTime @default(now())
 
   upsideScore Float
   strongMatch Boolean @default(false)
@@ -31,21 +31,28 @@ model MetricsSnapshot {
   avgDollarVol20d Float?
 
   // Swing setup metrics
-  close       Float?
-  sma50       Float?
-  sma200      Float?
-  atr14       Float?
-  atrPct      Float?
-  rvol        Float?
-  baseTight   Float?
-  breakout    Boolean @default(false)
+  close     Float?
+  sma50     Float?
+  sma200    Float?
+  atr14     Float?
+  atrPct    Float?
+  rvol      Float?
+  baseTight Float?
+  breakout  Boolean  @default(false)
+
+  // News sentiment (informational only)
+  newsLabel   String?
+  newsTrend   String?
+  newsScore3d Float?
+  newsScore7d Float?
 
   // Explainability
   metCriteriaJson String
   notesJson       String
   tagsJson        String
 
-  ticker      Ticker @relation(fields: [tickerId], references: [id])
+  ticker Ticker @relation(fields: [tickerId], references: [id])
+
   @@index([tickerId, date])
 }
 
