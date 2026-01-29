@@ -7,10 +7,10 @@ type Item = {
   id: string;
   status: string;
   notes: string | null;
-  ticker: { symbol: string; name: string | null; sector: string | null; marketCap: number | null };
+  ticker: { symbol: string; name: string | null; marketCap: number | null };
 };
 
-type Snapshot = {
+type Snap = {
   date: string;
   upsideScore: number;
   strongMatch: boolean;
@@ -21,7 +21,7 @@ type Snapshot = {
 
 export default function TrackingPage() {
   const [items, setItems] = useState<Item[]>([]);
-  const [snapshots, setSnapshots] = useState<Record<string, Snapshot[]>>({});
+  const [snapshots, setSnapshots] = useState<Record<string, Snap[]>>({});
   const [err, setErr] = useState<string | null>(null);
 
   async function load() {
@@ -32,12 +32,7 @@ export default function TrackingPage() {
 
     setItems(j.items);
 
-    // load snapshots per ticker
-    const snapRes = await fetch("/api/scan");
-    const snapJ = await snapRes.json();
-    // /api/scan GET returns latest strong matches only; for tracking page we pull snapshots per item below:
-    const map: Record<string, Snapshot[]> = {};
-
+    const map: Record<string, Snap[]> = {};
     for (const it of j.items as Item[]) {
       const sres = await fetch(`/api/watchlist?symbol=${it.ticker.symbol}`);
       const sj = await sres.json();
@@ -85,7 +80,7 @@ export default function TrackingPage() {
               const sym = it.ticker.symbol;
               const snaps = snapshots[sym] ?? [];
               const latest = snaps[0];
-              const why = latest ? safeJsonParse(latest.metCriteriaJson, []) as any[] : [];
+              const why = latest ? (safeJsonParse(latest.metCriteriaJson, []) as any[]) : [];
 
               return (
                 <tr key={it.id} className="border-t align-top">
