@@ -1,0 +1,52 @@
+
+
+model MetricsSnapshot {
+  id          String   @id @default(cuid())
+  tickerId    String
+  date        DateTime @default(now())
+
+  upsideScore Float
+  strongMatch Boolean @default(false)
+
+  avgDollarVol20d Float?
+  marketCap       Float?
+
+  // News sentiment summary (informational only)
+  newsLabel    String?  // Positive | Neutral | Negative
+  newsTrend    String?  // Improving | Stable | Worsening
+  newsScore3d  Float?
+  newsScore7d  Float?
+
+  // Explainability
+  metCriteriaJson String
+  notesJson       String
+
+  ticker      Ticker @relation(fields: [tickerId], references: [id])
+  @@index([tickerId, date])
+}
+
+model WatchlistItem {
+  id       String   @id @default(cuid())
+  tickerId String
+  addedAt  DateTime @default(now())
+  status   String   @default("On Watch") // On Watch | Triggered | Dropped
+  notes    String?
+
+  ticker   Ticker @relation(fields: [tickerId], references: [id])
+  @@index([tickerId])
+}
+
+model NewsArticle {
+  id             String   @id @default(cuid())
+  tickerId       String
+  publishedAt    DateTime
+  title          String
+  source         String?
+  url            String?  @unique
+  sentimentScore Float
+  sentimentLabel String   // Positive | Neutral | Negative
+  createdAt      DateTime @default(now())
+
+  ticker         Ticker @relation(fields: [tickerId], references: [id])
+  @@index([tickerId, publishedAt])
+}
