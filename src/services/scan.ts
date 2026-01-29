@@ -1,25 +1,39 @@
 import { prisma } from "@/lib/prisma";
-import { scoreUpside } from "@/services/scoring";
-import { ingestNewsForTicker, getNewsSummary } from "@/services/news";
 import * as polygon from "@/services/polygonClient";
+import { ingestNewsForTicker, getNewsSummary } from "@/services/news";
 import type { MatchRow } from "@/lib/types";
 import { subDays, formatISO } from "date-fns";
+import {
+  avgDollarVol20d,
+  atrPct,
+  bollingerWidth,
+  breakoutHigh,
+  rsi,
+  rvolToday,
+  sma,
+  type Candle
+} from "@/lib/indicators";
+import { scoreSwing } from "@/services/scoring";
 
 function isoDate(d: Date) {
   return formatISO(d, { representation: "date" });
 }
 
-function computeAvgDollarVol20(candles: any[]) {
-  const last = candles.slice(-20);
-  if (!last.length) return 0;
-  const sum = last.reduce((acc, c) => acc + (Number(c.v) * Number(c.vw || c.c)), 0);
-  return sum / last.length;
+function toCandles(polyResults: any[]): Candle[] {
+  return polyResults.map(r => ({
+    t: Number(r.t),
+    o: Number(r.o),
+    h: Number(r.h),
+    l: Number(r.l),
+    c: Number(r.c),
+    v: Number(r.v),
+    vw: r.vw ? Number(r.vw) : undefined
+  }));
 }
 
 export async function runScan(params: {
   scoreThreshold: number;
-  minDollarVol20d: number;
-  maxTickers: number; // dev guard
+  maxTickers: number;     // dev guard
 }): Promise<MatchRow[]> {
   const tickersResp = await polygon.listTickers(1000);
   const tickers: any[] = tickersResp?.results ?? [];
@@ -29,13 +43,14 @@ export async function runScan(params: {
     .filter(Boolean)
     .slice(0, params.maxTickers);
 
-  const from = isoDate(subDays(new Date(), 30));
+  // Need enough lookback for MA200 + ATR + BB + RSI
+  const from = isoDate(subDays(new Date(), 260));
   const to = isoDate(subDays(new Date(), 1));
 
   const matches: MatchRow[] = [];
 
   for (const symbol of symbols) {
-    // metadata
+    // overview for name + market cap (Starter usually allows this)
     let overview: any;
     try {
       overview = await polygon.tickerOverview(symbol);
@@ -43,58 +58,97 @@ export async function runScan(params: {
       continue;
     }
     const r = overview?.results;
-    const marketCap: number | null = r?.market_cap ?? null;
     const name: string | null = r?.name ?? null;
-    const sector: string | null = r?.sic_description ?? null;
+    const marketCap: number | null = r?.market_cap ?? null;
 
-    // price candles -> liquidity
+    // price candles
     let aggs: any;
     try {
       aggs = await polygon.aggsDailyRange(symbol, from, to);
     } catch {
       continue;
     }
-    const candles: any[] = aggs?.results ?? [];
-    if (candles.length < 10) continue;
 
-    const avgDollarVol20d = computeAvgDollarVol20(candles);
-    if (avgDollarVol20d < params.minDollarVol20d) continue;
+    const raw: any[] = aggs?.results ?? [];
+    if (raw.length < 210) continue; // need enough for MA200 robustness
 
-    // scoring (news NOT included in criteria)
-    const scored = scoreUpside(
-      { symbol, marketCap, avgDollarVol20d },
+    const candles = toCandles(raw);
+    const closes = candles.map(c => c.c);
+
+    const adv20 = avgDollarVol20d(candles);
+    const rvol = rvolToday(candles) ?? 0;
+
+    // indicators
+    const ma50 = sma(closes, 50);
+    const ma200 = sma(closes, 200);
+    const aboveMA50 = ma50 !== null ? closes[closes.length - 1] > ma50 : false;
+    const ma50AboveMA200 = ma50 !== null && ma200 !== null ? ma50 > ma200 : false;
+
+    const rsi14 = rsi(closes, 14) ?? 0;
+    const atr = atrPct(candles, 14) ?? 0;
+    const bbW = bollingerWidth(closes, 20, 2) ?? 0;
+
+    const breakout20 = breakoutHigh(candles, 20);
+    const breakout55 = breakoutHigh(candles, 55);
+
+    // score
+    const scored = scoreSwing(
+      {
+        marketCap,
+        avgDollarVol20d: adv20,
+        rvol,
+        bbWidth: bbW,
+        atrPct: atr,
+        rsi14,
+        aboveMA50,
+        ma50AboveMA200,
+        breakout20,
+        breakout55
+      },
       params.scoreThreshold
     );
 
     // persist ticker
     const dbTicker = await prisma.ticker.upsert({
       where: { symbol },
-      update: { name, sector, marketCap },
-      create: { symbol, name, sector, marketCap }
+      update: { name, marketCap },
+      create: { symbol, name, marketCap }
     });
 
-    // ingest news + sentiment (informational)
+    // ingest news (informational only)
+    let newsSummary = null;
     try {
       await ingestNewsForTicker(symbol);
+      newsSummary = await getNewsSummary(symbol);
     } catch {
-      // ignore if plan blocks / endpoint fails
+      // ignore if news blocked/unavailable
+      newsSummary = null;
     }
-    const newsSummary = await getNewsSummary(symbol);
 
-    // store snapshot
+    // snapshot
     await prisma.metricsSnapshot.create({
       data: {
         tickerId: dbTicker.id,
-        upsideScore: scored.upsideScore,
+        upsideScore: scored.score,
         strongMatch: scored.strongMatch,
-        avgDollarVol20d,
-        marketCap,
-        metCriteriaJson: JSON.stringify(scored.why),
-        notesJson: JSON.stringify(scored.notes),
+
+        avgDollarVol20d: adv20,
+        rvol,
+        bbWidth: bbW,
+        atrPct: atr,
+        rsi14,
+        aboveMA50,
+        ma50AboveMA200,
+        breakout20,
+        breakout55,
+
         newsLabel: newsSummary?.label ?? null,
         newsTrend: newsSummary?.trend ?? null,
         newsScore3d: newsSummary?.score3d ?? null,
-        newsScore7d: newsSummary?.score7d ?? null
+        newsScore7d: newsSummary?.score7d ?? null,
+
+        metCriteriaJson: JSON.stringify(scored.why),
+        notesJson: JSON.stringify(scored.notes)
       }
     });
 
@@ -102,11 +156,21 @@ export async function runScan(params: {
       matches.push({
         symbol,
         name,
-        sector,
         marketCap,
-        avgDollarVol20d,
-        upsideScore: scored.upsideScore,
+
+        upsideScore: scored.score,
         strongMatch: true,
+
+        avgDollarVol20d: adv20,
+        rvol,
+        bbWidth: bbW,
+        atrPct: atr,
+        rsi14,
+        aboveMA50,
+        ma50AboveMA200,
+        breakout20,
+        breakout55,
+
         why: scored.why,
         notes: scored.notes,
         news: newsSummary
@@ -122,48 +186,99 @@ export async function refreshTracked(scoreThreshold = 75): Promise<number> {
   const watch = await prisma.watchlistItem.findMany({ include: { ticker: true } });
   if (!watch.length) return 0;
 
-  const from = isoDate(subDays(new Date(), 30));
+  const from = isoDate(subDays(new Date(), 260));
   const to = isoDate(subDays(new Date(), 1));
 
   for (const w of watch) {
     const symbol = w.ticker.symbol;
 
-    // refresh news
-    try { await ingestNewsForTicker(symbol); } catch {}
-    const newsSummary = await getNewsSummary(symbol);
+    let overview: any;
+    try {
+      overview = await polygon.tickerOverview(symbol);
+    } catch {
+      continue;
+    }
+    const marketCap: number | null = overview?.results?.market_cap ?? w.ticker.marketCap ?? null;
 
-    // refresh liquidity
     let aggs: any;
     try {
       aggs = await polygon.aggsDailyRange(symbol, from, to);
     } catch {
       continue;
     }
-    const candles: any[] = aggs?.results ?? [];
-    const avgDollarVol20d = computeAvgDollarVol20(candles);
+    const raw: any[] = aggs?.results ?? [];
+    if (raw.length < 210) continue;
 
-    const scored = scoreUpside(
-      { symbol, marketCap: w.ticker.marketCap ?? null, avgDollarVol20d },
+    const candles = toCandles(raw);
+    const closes = candles.map(c => c.c);
+
+    const adv20 = avgDollarVol20d(candles);
+    const rvol = rvolToday(candles) ?? 0;
+
+    const ma50 = sma(closes, 50);
+    const ma200 = sma(closes, 200);
+    const aboveMA50 = ma50 !== null ? closes[closes.length - 1] > ma50 : false;
+    const ma50AboveMA200 = ma50 !== null && ma200 !== null ? ma50 > ma200 : false;
+
+    const rsi14 = rsi(closes, 14) ?? 0;
+    const atr = atrPct(candles, 14) ?? 0;
+    const bbW = bollingerWidth(closes, 20, 2) ?? 0;
+
+    const breakout20 = breakoutHigh(candles, 20);
+    const breakout55 = breakoutHigh(candles, 55);
+
+    const scored = scoreSwing(
+      {
+        marketCap,
+        avgDollarVol20d: adv20,
+        rvol,
+        bbWidth: bbW,
+        atrPct: atr,
+        rsi14,
+        aboveMA50,
+        ma50AboveMA200,
+        breakout20,
+        breakout55
+      },
       scoreThreshold
     );
+
+    // news (info only)
+    let newsSummary = null;
+    try {
+      await ingestNewsForTicker(symbol);
+      newsSummary = await getNewsSummary(symbol);
+    } catch {
+      newsSummary = null;
+    }
 
     await prisma.metricsSnapshot.create({
       data: {
         tickerId: w.ticker.id,
-        upsideScore: scored.upsideScore,
+        upsideScore: scored.score,
         strongMatch: scored.strongMatch,
-        avgDollarVol20d,
-        marketCap: w.ticker.marketCap ?? null,
-        metCriteriaJson: JSON.stringify(scored.why),
-        notesJson: JSON.stringify(scored.notes),
+
+        avgDollarVol20d: adv20,
+        rvol,
+        bbWidth: bbW,
+        atrPct: atr,
+        rsi14,
+        aboveMA50,
+        ma50AboveMA200,
+        breakout20,
+        breakout55,
+
         newsLabel: newsSummary?.label ?? null,
         newsTrend: newsSummary?.trend ?? null,
         newsScore3d: newsSummary?.score3d ?? null,
-        newsScore7d: newsSummary?.score7d ?? null
+        newsScore7d: newsSummary?.score7d ?? null,
+
+        metCriteriaJson: JSON.stringify(scored.why),
+        notesJson: JSON.stringify(scored.notes)
       }
     });
 
-    // auto-trigger example: crosses threshold
+    // auto-trigger if threshold crossed
     if (w.status === "On Watch" && scored.strongMatch) {
       await prisma.watchlistItem.update({ where: { id: w.id }, data: { status: "Triggered" } });
     }
