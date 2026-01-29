@@ -10,10 +10,26 @@ export async function POST(req: Request) {
     const matches = await runScan({ scoreThreshold, maxTickers });
     return NextResponse.json({ ok: true, matches });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? String(e) },
+      { status: 500 }
+    );
   }
 }
 
-export async function GET() {
-  return NextResponse.json({ ok: true });
+// Make GET return matches too (so visiting /api/scan in browser shows results)
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const scoreThreshold = Number(searchParams.get("scoreThreshold") ?? 75);
+  const maxTickers = Number(searchParams.get("maxTickers") ?? 200);
+
+  try {
+    const matches = await runScan({ scoreThreshold, maxTickers });
+    return NextResponse.json({ ok: true, matches });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? String(e) },
+      { status: 500 }
+    );
+  }
 }
