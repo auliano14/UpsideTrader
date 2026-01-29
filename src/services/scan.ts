@@ -47,30 +47,45 @@ export async function runScan(params: {
   const from = isoDate(subDays(new Date(), 260));
   const to = isoDate(subDays(new Date(), 1));
 
+  // ✅ DEBUG LOGS
+  console.log("SCAN: tickersResp.results =", tickers.length);
+  console.log("SCAN: symbols =", symbols.length, "first10 =", symbols.slice(0, 10));
+  console.log("SCAN: from/to =", from, to, "threshold =", params.scoreThreshold);
+
   const matches: MatchRow[] = [];
 
-  for (const symbol of symbols) {
+  // ✅ indexed loop so we can log first few tickers safely
+  for (let i = 0; i < symbols.length; i++) {
+    const symbol = symbols[i];
+
     // overview for name + market cap (Starter usually allows this)
     let overview: any;
     try {
       overview = await polygon.tickerOverview(symbol);
     } catch {
+      if (i < 5) console.log("SCAN:", symbol, "overview fetch failed");
       continue;
     }
     const r = overview?.results;
     const name: string | null = r?.name ?? null;
     const marketCap: number | null = r?.market_cap ?? null;
 
+    if (i < 5) console.log("SCAN:", symbol, "marketCap =", marketCap, "name =", name);
+
     // price candles
     let aggs: any;
     try {
       aggs = await polygon.aggsDailyRange(symbol, from, to);
     } catch {
+      if (i < 5) console.log("SCAN:", symbol, "aggs fetch failed");
       continue;
     }
 
     const raw: any[] = aggs?.results ?? [];
-    if (raw.length < 210) continue; // need enough for MA200 robustness
+    if (i < 5) console.log("SCAN:", symbol, "raw candles =", raw.length);
+
+    // ✅ TEMP DEBUG: 210 filters out too much; lower to confirm pipeline works
+    if (raw.length < 60) continue;
 
     const candles = toCandles(raw);
     const closes = candles.map(c => c.c);
@@ -107,6 +122,21 @@ export async function runScan(params: {
       },
       params.scoreThreshold
     );
+
+    if (i < 5) {
+      console.log(
+        "SCAN:", symbol,
+        "adv20 =", adv20.toFixed(0),
+        "rvol =", rvol.toFixed(2),
+        "bbW =", bbW.toFixed(3),
+        "atrPct =", (atr * 100).toFixed(2) + "%",
+        "rsi14 =", rsi14.toFixed(1),
+        "break20 =", breakout20,
+        "break55 =", breakout55,
+        "score =", scored.score.toFixed(1),
+        "strong =", scored.strongMatch
+      );
+    }
 
     // persist ticker
     const dbTicker = await prisma.ticker.upsert({
@@ -178,6 +208,8 @@ export async function runScan(params: {
     }
   }
 
+  console.log("SCAN: matches found =", matches.length);
+
   matches.sort((a, b) => b.upsideScore - a.upsideScore);
   return matches;
 }
@@ -207,7 +239,9 @@ export async function refreshTracked(scoreThreshold = 75): Promise<number> {
       continue;
     }
     const raw: any[] = aggs?.results ?? [];
-    if (raw.length < 210) continue;
+
+    // ✅ TEMP DEBUG: lower from 210 to 60 so tracked tickers don’t get skipped
+    if (raw.length < 60) continue;
 
     const candles = toCandles(raw);
     const closes = candles.map(c => c.c);
