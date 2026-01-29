@@ -10,7 +10,6 @@ export default function ScanPage() {
   const [rows, setRows] = useState<MatchRow[]>([]);
 
   const [scoreThreshold, setScoreThreshold] = useState(75);
-  const [minDollarVol20d, setMinDollarVol20d] = useState(5_000_000);
   const [maxTickers, setMaxTickers] = useState(200); // dev guard
 
   async function runScan() {
@@ -21,7 +20,7 @@ export default function ScanPage() {
       const res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scoreThreshold, minDollarVol20d, maxTickers })
+        body: JSON.stringify({ scoreThreshold, maxTickers })
       });
       const j = await res.json();
       if (!j.ok) throw new Error(j.error ?? "Scan failed");
@@ -49,33 +48,38 @@ export default function ScanPage() {
       <h1 className="text-2xl font-semibold">Scan</h1>
 
       <div className="rounded-lg border p-4 space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label className="text-sm">
             Score Threshold
-            <input className="mt-1 w-full rounded border p-2" type="number"
-              value={scoreThreshold} onChange={(e) => setScoreThreshold(Number(e.target.value))} />
-          </label>
-
-          <label className="text-sm">
-            Min $ Volume (20D)
-            <input className="mt-1 w-full rounded border p-2" type="number"
-              value={minDollarVol20d} onChange={(e) => setMinDollarVol20d(Number(e.target.value))} />
+            <input
+              className="mt-1 w-full rounded border p-2"
+              type="number"
+              value={scoreThreshold}
+              onChange={(e) => setScoreThreshold(Number(e.target.value))}
+            />
           </label>
 
           <label className="text-sm">
             Max Tickers (dev guard)
-            <input className="mt-1 w-full rounded border p-2" type="number"
-              value={maxTickers} onChange={(e) => setMaxTickers(Number(e.target.value))} />
+            <input
+              className="mt-1 w-full rounded border p-2"
+              type="number"
+              value={maxTickers}
+              onChange={(e) => setMaxTickers(Number(e.target.value))}
+            />
           </label>
         </div>
 
-        <button className="rounded bg-black text-white px-4 py-2 disabled:opacity-50"
-          onClick={runScan} disabled={loading}>
+        <button
+          className="rounded bg-black text-white px-4 py-2 disabled:opacity-50"
+          onClick={runScan}
+          disabled={loading}
+        >
           {loading ? "Scanning..." : "Run Scan"}
         </button>
 
         <p className="text-xs text-gray-600">
-          Dev guard limits tickers per scan. Increase later after you add caching/staged scans.
+          Dev guard exists so you don’t hit rate limits while learning. Increase later with caching/staged scans.
         </p>
 
         {err && <div className="text-sm text-red-600">{err}</div>}
@@ -91,9 +95,9 @@ export default function ScanPage() {
             <tr className="text-left">
               <th className="p-3">Ticker</th>
               <th className="p-3">Score</th>
-              <th className="p-3">Market Cap</th>
-              <th className="p-3">Why Selected</th>
-              <th className="p-3">News (info only)</th>
+              <th className="p-3">Mkt Cap</th>
+              <th className="p-3">Signals</th>
+              <th className="p-3">News (info)</th>
               <th className="p-3">Track</th>
             </tr>
           </thead>
@@ -104,6 +108,9 @@ export default function ScanPage() {
                 <td className="p-3">{r.upsideScore.toFixed(1)}</td>
                 <td className="p-3">{fmtMoney(r.marketCap)}</td>
                 <td className="p-3">
+                  <div className="text-xs text-gray-600 mb-2">
+                    RVOL {r.rvol.toFixed(2)} | BBW {r.bbWidth.toFixed(3)} | ATR% {(r.atrPct*100).toFixed(2)} | RSI {r.rsi14.toFixed(1)}
+                  </div>
                   <ul className="list-disc pl-5">
                     {r.why.slice(0, 6).map((c, i) => (
                       <li key={i}><span className="font-medium">{c.label}:</span> {c.value}</li>
@@ -126,8 +133,10 @@ export default function ScanPage() {
                   )}
                 </td>
                 <td className="p-3">
-                  <button className="rounded border px-3 py-1 hover:bg-gray-50"
-                    onClick={() => addToTracking(r.symbol)}>
+                  <button
+                    className="rounded border px-3 py-1 hover:bg-gray-50"
+                    onClick={() => addToTracking(r.symbol)}
+                  >
                     Add
                   </button>
                 </td>
